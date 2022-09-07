@@ -90,13 +90,28 @@ gp.inducing_inputs = torch.linspace(-10, 60, M)
 ```
 
 ```python
+model
+```
+
+```python
+gp
+```
+
+```python
+# print(len(gp.inducing_inputs))
+print(gp.prior_point_process.rate)
+print(gp.variational_point_process.prior)
+print(gp.variational_point_process.probabilities)
+```
+
+```python
 def plot_svgp(ax=None):
     if ax is None:
         ax = plt.subplots(figsize=(fig_width, 5))[1]
     ax.set_xlim(-10, 60)
     ax.margins(x=0)
     
-    x_in = torch.linspace(-10, 60, 500)
+    # x_in = torch.linspace(-10, 60, 500) ?
     plot_latent(gp, ax)
     ax.plot(X.flatten(), Y.flatten(), "x", color=plt.cm.Greys(0.9, 0.5))
 
@@ -126,6 +141,16 @@ model.fit(X=X, Y=Y, max_epochs=500)
 plot_svgp()
 ```
 
+```python
+gp.inducing_inputs
+```
+
+```python
+print(gp.prior_point_process.rate)
+print(gp.variational_point_process.prior)
+print(gp.variational_point_process.probabilities)
+```
+
 The black dots are inducing points and the blue line and shading are resp. mean and standard deviation of the SVGP. Note that there are plenty of inducing points that could be removed without much detriment to the predictive posterior, thus decreasing space and time complexity of the model.
 
 To identify these "superfluous" points in a data-driven manner, we estimate the posterior probability of inclusion through score function estimation. While doing so, all other parameters of the model are locked (this restriction could be lifted, but we have opted for a simple implementation that still yields robust results).
@@ -133,6 +158,12 @@ To identify these "superfluous" points in a data-driven manner, we estimate the 
 ```python
 gp.prior_point_process.rate.fill_(1)
 gp.variational_point_process.probabilities = 0.3
+
+print("before training")
+print(gp.prior_point_process.rate)
+print(gp.variational_point_process.prior)
+print(gp.variational_point_process.probabilities)
+
 model.fit_score_function_estimator(
     X=X, Y=Y, learning_rate=0.3, max_epochs=100,
     n_mcmc_samples=8)
@@ -140,6 +171,11 @@ model.fit_score_function_estimator(
 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(fig_width, 6), sharex=True)
 plot_svgp(ax1)
 plot_probabilities(ax2)
+
+print("after training")
+print(gp.prior_point_process.rate)
+print(gp.variational_point_process.prior)
+print(gp.variational_point_process.probabilities)
 ```
 
 The lower panel show the probability of inclusion. Although we have only trained for 100 epochs, we already see a tendency to favour inducing points which are located next to the two clusters of data.
@@ -154,6 +190,11 @@ model.fit_score_function_estimator(
 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(fig_width, 6), sharex=True)
 plot_svgp(ax1)
 plot_probabilities(ax2)
+
+print("after training")
+print(gp.prior_point_process.rate)
+print(gp.variational_point_process.prior)
+print(gp.variational_point_process.probabilities)
 ```
 
 At this point, the PPP has locked in on a small subset of points to represent the function. Sampling from the resulting distribution over inducing points and refitting, we arrive at a heavily pruned model.
@@ -163,6 +204,10 @@ remove_points(gp)
 gp.variational_point_process.probabilities = 1.0
 model.fit(X=X, Y=Y, max_epochs=300)
 plot_svgp()
+
+print(gp.prior_point_process.rate)
+print(gp.variational_point_process.prior)
+print(gp.variational_point_process.probabilities)
 ```
 
 ## Changing the prior
