@@ -14,8 +14,11 @@ jupyter:
 
 # Probabilistic Selection of Inducing Points in Sparse Gaussian Processes 
 
-## 3D Road Network (North Jutland, Denmark) Data Set
-https://archive.ics.uci.edu/ml/datasets/3D+Road+Network+(North+Jutland,+Denmark)
+## kin40k 
+
+- the location of a robotic arm as a function of an 8-dimensional control input
+
+https://github.com/trungngv/fgp/tree/master/data/kin40k 
 
 ```python
 %matplotlib inline
@@ -55,59 +58,62 @@ torch.manual_seed(0)
 ```
 
 ```python
-data = pd.read_csv("https://archive.ics.uci.edu/ml/machine-learning-databases/00246/3D_spatial_network.txt", names=["OSM_ID", "LONGITUDE", "LATITUDE", "ALTITUDE"])
-data = data.astype(np.float32)
-data = data.drop(columns=['OSM_ID'])
+def preprocess(data):
+    data[0] = data[0].str.strip()
+    data[0] = data[0].apply(lambda x: ' '.join(x.split()))
+    data[0] = data[0].apply(lambda x: x.split(' '))
+    df = pd.DataFrame(data[0].values.tolist())
+    return np.array(df).astype(np.float32)
 ```
 
 ```python
-plt.scatter(data['LONGITUDE'], data['LATITUDE'], c=data['ALTITUDE'], cmap='terrain')
-plt.show()
+data = pd.read_csv("../../Diploma-Thesis-Repository/datasets/kin40k/kin40k_train_data.asc", header=None)
+X_train = preprocess(data)
+
+data = pd.read_csv("../../Diploma-Thesis-Repository/datasets/kin40k/kin40k_test_data.asc", header=None)
+X_test = preprocess(data)
+
+y_train = pd.read_csv("../../Diploma-Thesis-Repository/datasets/kin40k/kin40k_train_labels.asc", header=None)[0]
+y_train = np.array(y_train)
+
+y_test = pd.read_csv("../../Diploma-Thesis-Repository/datasets/kin40k/kin40k_test_labels.asc", header=None)[0]
+y_test = np.array(y_test)
 ```
 
 ```python
-X_train, X_test, y_train, y_test = train_test_split(data[["LONGITUDE", "LATITUDE"]], data["ALTITUDE"], test_size=0.3, random_state=42)
-X_train, X_valid, y_train, y_valid = train_test_split(X_train, y_train, test_size=0.1, random_state=42)
+X_data, y_data = torch.tensor(X_train).to(torch.float64), torch.tensor(y_train).to(torch.float64)
+X_test, y_test = torch.tensor(X_test).to(torch.float64), torch.tensor(y_test).to(torch.float64)
 ```
 
 ```python
-print(X_train.shape)
-print(X_valid.shape)
+print(X_data.shape)
 print(X_test.shape)
+print(y_test.shape)
 ```
 
 ```python
-# subset
-X_train = X_train[:10000]
-y_train = y_train[:10000]
+X_train = X_data[:9000]
+y_train = y_data[:9000]
 
-X_valid = X_valid[:2000]
-y_valid = y_valid[:2000]
+X_valid = X_data[9000:]
+y_valid = y_data[9000:]
 
-X_test = X_test[:10000]
-y_test = y_test[:10000]
+X_test = X_test[20000:22000] 
+y_test = y_test[20000:22000]
 ```
 
 ```python
-scaler = StandardScaler()
-X_train = torch.from_numpy(scaler.fit_transform(X_train)).to(torch.float64)
-X_valid = torch.from_numpy(scaler.transform(X_valid)).to(torch.float64)
-X_test = torch.from_numpy(scaler.transform(X_test)).to(torch.float64)
-
-scaler = StandardScaler()
-y_train = torch.from_numpy(scaler.fit_transform(np.array(y_train).reshape(-1, 1))).to(torch.float64)
-y_valid = torch.from_numpy(scaler.transform(np.array(y_valid).reshape(-1, 1))).to(torch.float64)
-y_test = torch.from_numpy(scaler.transform(np.array(y_test).reshape(-1, 1))).to(torch.float64)
-```
-
-```python
-y_train = torch.transpose(y_train, -1, 0)[0]
-y_valid = torch.transpose(y_valid, -1, 0)[0]
-y_test = torch.transpose(y_test, -1, 0)[0]
+y_train = torch.transpose(y_train, -1, 0)
+y_valid = torch.transpose(y_valid, -1, 0)
+y_test = torch.transpose(y_test, -1, 0)
 ```
 
 ```python
 X_train.type()
+```
+
+```python
+y_test.shape
 ```
 
 ```python
@@ -179,12 +185,12 @@ The prior parameters alpha needed to be configured for each dataset as more obse
 
 ```python
 parameters = {
-    "pre_epochs": [200],
-    "ppp_epochs": [600],
-    "post_epochs": [200],
+    "pre_epochs": [20, 50, 100], # [2, 5, 10]
+    "ppp_epochs": [50, 100, 150], # [5, 10, 15]
+    "post_epochs": [20, 50, 100], # [2, 5, 10]
     "M": [2**11, 2**12, 2**13],
     "learning_rate": [0.001],
-    "prior_rate": [0.6, 0.5, 0.4, 0.3], # alpha
+    "prior_rate": [5, 1, 0.6, 0.5, 0.4, 0.3], # alpha
     "variational_pp_probs": [1.0, 0.6, 0.2] # set before ppp training (ppp = poisson point process)
 }
 ```
@@ -194,7 +200,7 @@ import itertools
 settings = (dict(zip(parameters, x)) for x in itertools.product(*parameters.values()))
 ```
 
-```python
+```python jupyter={"outputs_hidden": true} tags=[]
 results = pd.DataFrame(
     columns=[
         "training_parameters",
@@ -214,12 +220,12 @@ for setting in settings:
     gp.inducing_inputs = X_train[np.random.permutation(X_train.shape[0])[0:M], :]
     gp.prior_point_process.rate.fill_(setting["prior_rate"])
 
-    # print_info(gp)
+    print_info(gp)
 
     print("Pre-fitting")
     model.fit(X=X_train, Y=y_train, max_epochs=setting["pre_epochs"])
     gp.variational_point_process.probabilities = setting["variational_pp_probs"]
-    # print_info(gp)
+    print_info(gp)
 
     print("Pruning")
     model.fit_score_function_estimator(
@@ -230,17 +236,18 @@ for setting in settings:
         n_mcmc_samples=8,
     )
 
-    # print_info(gp)
+    print_info(gp)
 
+    print("After pruning and points removal")
     remove_points(gp)
     gp.variational_point_process.probabilities = 1.0
 
-    # print_info(gp)
+    print_info(gp)
 
     print("Post-fitting")
     model.fit(X=X_train, Y=y_train, max_epochs=setting["post_epochs"])
 
-    # print_info(gp)
+    print_info(gp)
 
     preds = gp.forward(X_test)
 
@@ -276,11 +283,7 @@ for setting in settings:
 ```
 
 ```python
-results.to_csv("3Droad_results.csv", index=False)
-```
-
-```python
-results
+results.to_csv("kin40k_results.csv", index=False)
 ```
 
 ```python

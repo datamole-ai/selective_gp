@@ -14,15 +14,20 @@ jupyter:
 
 # Probabilistic Selection of Inducing Points in Sparse Gaussian Processes 
 
-## 3D Road Network (North Jutland, Denmark) Data Set
-https://archive.ics.uci.edu/ml/datasets/3D+Road+Network+(North+Jutland,+Denmark)
+## airline
+
+- flight arrival and departure times for every commercial flight in the USA from January 2008 to April 2008
+
+https://github.com/sods/ods/blob/main/notebooks/pods/datasets/airline-delay.ipynb 
 
 ```python
 %matplotlib inline
 
 import matplotlib.pyplot as plt
+
 import seaborn as sns
 
+import pods
 import torch
 import numpy as np
 import pandas as pd
@@ -55,59 +60,74 @@ torch.manual_seed(0)
 ```
 
 ```python
-data = pd.read_csv("https://archive.ics.uci.edu/ml/machine-learning-databases/00246/3D_spatial_network.txt", names=["OSM_ID", "LONGITUDE", "LATITUDE", "ALTITUDE"])
-data = data.astype(np.float32)
-data = data.drop(columns=['OSM_ID'])
+# torch.cuda.set_device(1)
+# torch.cuda.current_device()
+# torch.cuda.empty_cache()
 ```
 
 ```python
-plt.scatter(data['LONGITUDE'], data['LATITUDE'], c=data['ALTITUDE'], cmap='terrain')
-plt.show()
+data = pods.datasets.airline_delay() # set num_train num_test to download more samples than default
+columns = data['covariates'] + data['response']
 ```
 
 ```python
-X_train, X_test, y_train, y_test = train_test_split(data[["LONGITUDE", "LATITUDE"]], data["ALTITUDE"], test_size=0.3, random_state=42)
-X_train, X_valid, y_train, y_valid = train_test_split(X_train, y_train, test_size=0.1, random_state=42)
+X_data, y_data = torch.tensor(data['X']), torch.tensor(np.transpose(data['Y'])[0]) 
+X_test, y_test = torch.tensor(data['Xtest']), torch.tensor(np.transpose(data['Ytest'])[0]) 
 ```
 
 ```python
-print(X_train.shape)
-print(X_valid.shape)
+print(X_data.shape)
 print(X_test.shape)
+```
+
+```python tags=[]
+X_data.device
 ```
 
 ```python
 # subset
-X_train = X_train[:10000]
-y_train = y_train[:10000]
+X_train = X_data[:10000]
+y_train = y_data[:10000]
 
-X_valid = X_valid[:2000]
-y_valid = y_valid[:2000]
+X_valid = X_data[10000:12000]
+y_valid = y_data[10000:12000]
 
-X_test = X_test[:10000]
-y_test = y_test[:10000]
+X_test = X_test[:2000]
+y_test = y_test[:2000]
+
+# X_train = X_data[:650000]
+# y_train = y_data[:650000]
+
+# X_valid = X_data[650000:]
+# y_valid = y_data[650000:]
 ```
 
 ```python
 scaler = StandardScaler()
-X_train = torch.from_numpy(scaler.fit_transform(X_train)).to(torch.float64)
-X_valid = torch.from_numpy(scaler.transform(X_valid)).to(torch.float64)
-X_test = torch.from_numpy(scaler.transform(X_test)).to(torch.float64)
+X_train = torch.from_numpy(scaler.fit_transform(X_train.cpu().numpy()))#.cuda()
+X_valid = torch.from_numpy(scaler.transform(X_valid.cpu().numpy()))#.cuda()
+X_test = torch.from_numpy(scaler.transform(X_test.cpu().numpy()))#.cuda()
+```
 
+```python
 scaler = StandardScaler()
-y_train = torch.from_numpy(scaler.fit_transform(np.array(y_train).reshape(-1, 1))).to(torch.float64)
-y_valid = torch.from_numpy(scaler.transform(np.array(y_valid).reshape(-1, 1))).to(torch.float64)
-y_test = torch.from_numpy(scaler.transform(np.array(y_test).reshape(-1, 1))).to(torch.float64)
+y_train = torch.from_numpy(scaler.fit_transform(y_train.cpu().numpy().reshape(-1, 1)))#.cuda()
+y_valid = torch.from_numpy(scaler.transform(y_valid.cpu().numpy().reshape(-1, 1)))#.cuda()
+y_test = torch.from_numpy(scaler.transform(y_test.cpu().numpy().reshape(-1, 1)))#.cuda()
 ```
 
 ```python
-y_train = torch.transpose(y_train, -1, 0)[0]
-y_valid = torch.transpose(y_valid, -1, 0)[0]
-y_test = torch.transpose(y_test, -1, 0)[0]
+y_train = torch.transpose(y_train, -1, 0)
+y_valid = torch.transpose(y_valid, -1, 0)
+y_test = torch.transpose(y_test, -1, 0)
 ```
 
 ```python
-X_train.type()
+y_test.type()
+```
+
+```python
+y_test.shape
 ```
 
 ```python
@@ -132,10 +152,10 @@ dataset = Dataset(X_train, X_test, y_train, y_test)
 
 ```python
 def print_info(gp):
-    print(len(gp.inducing_inputs))
-    print(gp.prior_point_process.rate)
-    print(gp.variational_point_process.prior)
-    print(gp.variational_point_process.probabilities)
+    print("Number of inducing points: ", len(gp.inducing_inputs))
+    print("gp.prior_point_process.rate: ", gp.prior_point_process.rate)
+    # print(gp.variational_point_process.prior)
+    print("gp.variational_point_process.probabilities: ", gp.variational_point_process.probabilities)
 ```
 
 ```python
@@ -179,13 +199,16 @@ The prior parameters alpha needed to be configured for each dataset as more obse
 
 ```python
 parameters = {
-    "pre_epochs": [200],
-    "ppp_epochs": [600],
-    "post_epochs": [200],
+    "pre_epochs": [20, 50, 100],
+    "ppp_epochs": [50, 100, 150], 
+    "post_epochs": [20, 50, 100],
     "M": [2**11, 2**12, 2**13],
-    "learning_rate": [0.001],
-    "prior_rate": [0.6, 0.5, 0.4, 0.3], # alpha
-    "variational_pp_probs": [1.0, 0.6, 0.2] # set before ppp training (ppp = poisson point process)
+    "learning_rate": [0.3, 0.1, 0.001, 0.0001], # default 0.3
+    "prior_rate": [5, 1, 0.6, 0.5, 0.4, 0.3], # alpha
+    "variational_pp_probs": [1.0, 0.6, 0.2], # set before ppp training (ppp = poisson point process)
+    "var_learning_rate": [0.001, 0.02, 0.2, 0.4], # default 0.02 https://github.com/akuhren/selective_gp/blob/master/selective_gp/models/base_model.py#L186
+    "hp_learning_rate" : [0.001, 0.02, 0.2, 0.4], # default 0.02
+    "n_mcmc_samples" : [1, 2, 3, 4] # default 1
 }
 ```
 
@@ -195,6 +218,21 @@ settings = (dict(zip(parameters, x)) for x in itertools.product(*parameters.valu
 ```
 
 ```python
+model = get_model(dataset, n_inducing=2**11, scale_X=False, scale_Y=False)
+(gp,) = model.gps
+
+gp.inducing_inputs = X_train[np.random.permutation(X_train.shape[0])[0:2**11], :]
+gp.prior_point_process.rate.fill_(0.2)
+
+print_info(gp)
+```
+
+```python
+model.device
+```
+
+```python
+import time
 results = pd.DataFrame(
     columns=[
         "training_parameters",
@@ -214,12 +252,22 @@ for setting in settings:
     gp.inducing_inputs = X_train[np.random.permutation(X_train.shape[0])[0:M], :]
     gp.prior_point_process.rate.fill_(setting["prior_rate"])
 
-    # print_info(gp)
+    print_info(gp)
 
     print("Pre-fitting")
-    model.fit(X=X_train, Y=y_train, max_epochs=setting["pre_epochs"])
+    start_time = time.time() # REMOVE
+    model.fit(
+        X=X_train,
+        Y=y_train,
+        max_epochs=setting["pre_epochs"],
+        var_learning_rate=setting["var_learning_rate"],
+        hp_learning_rate=setting["hp_learning_rate"],
+        n_mcmc_samples=setting["n_mcmc_samples"],
+    )
+    end_time = time.time() # REMOVE
     gp.variational_point_process.probabilities = setting["variational_pp_probs"]
-    # print_info(gp)
+    print_info(gp)
+    print("time: ", end_time - start_time)  # REMOVE
 
     print("Pruning")
     model.fit_score_function_estimator(
@@ -230,17 +278,25 @@ for setting in settings:
         n_mcmc_samples=8,
     )
 
-    # print_info(gp)
+    print_info(gp)
 
+    print("After pruning and points removal")
     remove_points(gp)
     gp.variational_point_process.probabilities = 1.0
 
-    # print_info(gp)
+    print_info(gp)
 
     print("Post-fitting")
-    model.fit(X=X_train, Y=y_train, max_epochs=setting["post_epochs"])
+    model.fit(
+        X=X_train,
+        Y=y_train,
+        max_epochs=setting["post_epochs"],
+        var_learning_rate=setting["var_learning_rate"],
+        hp_learning_rate=setting["hp_learning_rate"],
+        n_mcmc_samples=setting["n_mcmc_samples"],
+    )
 
-    # print_info(gp)
+    print_info(gp)
 
     preds = gp.forward(X_test)
 
@@ -269,14 +325,14 @@ for setting in settings:
             "rmse": rmse,
             "smse": smse,
             "msll": msll,
-            "covered": covered
+            "covered": covered,
         },
         ignore_index=True,
     )
 ```
 
 ```python
-results.to_csv("3Droad_results.csv", index=False)
+results.to_csv("airline_results.csv", index=False)
 ```
 
 ```python
@@ -284,7 +340,7 @@ results
 ```
 
 ```python
-results
+# CPU time:  2686.531753540039
 ```
 
 ```python
